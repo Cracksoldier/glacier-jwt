@@ -1,4 +1,4 @@
-# GLACIER — JWT Token Forensics
+# <img src="favicon.svg" alt="GLACIER logo" width="38" align="top"> GLACIER — JWT Token Forensics
 
 A fully static, client-side analyzer for JWT bearer tokens — signed (JWS) **and** encrypted (JWE).
 No backend, no build step, no network calls with your token: everything runs in the browser via WebCrypto.
