@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
 
-  /** Decode base64url to a Uint8Array. Throws on invalid input. */
+  /** Decode base64url to a Uint8Array. Tolerates interior whitespace (wrapped keys). */
   function b64urlToBytes(input) {
-    let b64 = String(input).replace(/-/g, '+').replace(/_/g, '/');
+    let b64 = String(input).replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
     const pad = b64.length % 4;
     if (pad === 1) throw new Error('Invalid base64url length');
     if (pad) b64 += '='.repeat(4 - pad);
@@ -65,23 +65,31 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  /** Pretty-print a JS value as syntax-highlighted JSON HTML. */
+  /** Pretty-print a JS value as syntax-highlighted JSON HTML.
+      Tokenizes the raw JSON first, escaping each piece on emission — escaping
+      first would destroy the quotes the string rule matches on. */
   function highlightJSON(value, indent) {
     const json = JSON.stringify(value, null, indent || 2);
     if (json === undefined) return '';
-    return escapeHtml(json).replace(
-      /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
-      function (match, str, colon, bool) {
-        if (str !== undefined) {
-          return colon
-            ? '<span class="j-key">' + str + '</span>' + colon
-            : '<span class="j-str">' + str + '</span>';
-        }
-        if (bool !== undefined) return '<span class="j-bool">' + match + '</span>';
-        if (match === 'null') return '<span class="j-null">null</span>';
-        return '<span class="j-num">' + match + '</span>';
+    const re = /("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+    let out = '', last = 0, m;
+    while ((m = re.exec(json)) !== null) {
+      out += escapeHtml(json.slice(last, m.index));
+      const tok = m[0];
+      if (m[1] !== undefined) {
+        out += m[2] !== undefined
+          ? '<span class="j-key">' + escapeHtml(m[1]) + '</span>' + m[2]
+          : '<span class="j-str">' + escapeHtml(m[1]) + '</span>';
+      } else if (tok === 'true' || tok === 'false') {
+        out += '<span class="j-bool">' + tok + '</span>';
+      } else if (tok === 'null') {
+        out += '<span class="j-null">null</span>';
+      } else {
+        out += '<span class="j-num">' + tok + '</span>';
       }
-    );
+      last = m.index + tok.length;
+    }
+    return out + escapeHtml(json.slice(last));
   }
 
   root.JWTUtils = {

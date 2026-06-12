@@ -181,13 +181,16 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
 
 /* ---------- intake ---------- */
 .input-panel { margin-top: 6px; }
-#token-input {
-  width: 100%; min-height: 110px; resize: vertical;
+#token-input, .key-input {
+  width: 100%; resize: vertical;
   background: rgba(4, 14, 25, 0.75);
   border: 1px solid var(--panel-edge); border-radius: 8px;
-  color: var(--ink); font-family: var(--mono); font-size: 13px; line-height: 1.6;
-  padding: 12px 14px; word-break: break-all;
+  color: var(--ink);
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+#token-input {
+  min-height: 110px; font-family: var(--mono); font-size: 13px; line-height: 1.6;
+  padding: 12px 14px; word-break: break-all;
 }
 #token-input:focus, .key-input:focus {
   outline: none; border-color: var(--panel-edge-hi);
@@ -368,14 +371,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
 .seg-select button:hover { color: var(--ink); }
 .seg-select button.active { color: var(--bg-0); background: var(--ice); font-weight: 700; }
 
-.key-input {
-  width: 100%; min-height: 92px; resize: vertical;
-  background: rgba(4, 14, 25, 0.75);
-  border: 1px solid var(--panel-edge); border-radius: 8px;
-  color: var(--ink); font-size: 12px; line-height: 1.55;
-  padding: 11px 13px;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
+.key-input { min-height: 92px; font-size: 12px; line-height: 1.55; padding: 11px 13px; }
 
 .action-btn {
   display: inline-flex; align-items: center; gap: 9px;
@@ -397,7 +393,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
 /* ---------- verdict ---------- */
 .verdict { margin-top: 12px; }
 .verdict.pending { color: var(--ink-dim); font-size: 13px; }
-.verdict.valid, .verdict.invalid, .decrypt-result .verdict {
+.verdict.valid, .verdict.invalid {
   display: flex; gap: 13px; align-items: flex-start;
   border-radius: 8px; padding: 13px 15px;
   animation: stamp 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;

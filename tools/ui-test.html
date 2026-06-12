@@ -21,12 +21,15 @@
 
       // --- HS256 sample: load, check render, verify ---
       sampleBtns[0].click(); await sleep(100);
+      const hsTok = $('#token-input').value;
       out('HS sample: results visible', !$('#results').classList.contains('hidden'));
       out('HS sample: status says SIGNED', $('#status-strip').textContent.includes('SIGNED'));
       out('HS sample: claims rendered', doc.querySelectorAll('.claim-row').length > 5);
       out('HS sample: anatomy has 3 segments', doc.querySelectorAll('#anatomy .seg').length === 3);
+      out('HS sample: JSON keys highlighted', !!doc.querySelector('#json-header .j-key'));
+      out('HS sample: verify-format stays auto', $('#verify-format').dataset.value === 'auto');
       $('#btn-verify').click(); await sleep(600);
-      out('HS sample verifies VALID', $('#verdict').textContent.includes('SIGNATURE VALID'));
+      out('HS sample verifies VALID', !!doc.querySelector('#verdict .verdict.valid'));
 
       // wrong secret -> NOT VERIFIED
       $('#verify-key').value = 'definitely-wrong'; $('#btn-verify').click(); await sleep(600);
@@ -57,9 +60,16 @@
         out('back returns to the JWE', $('#status-strip').textContent.includes('ENCRYPTED'));
       }
 
+      // --- stripped signature: classic signature-stripping attack ---
+      $('#token-input').value = hsTok.split('.').slice(0, 2).join('.') + '.';
+      $('#token-input').dispatchEvent(new Event('input', {bubbles:true})); await sleep(400);
+      out('stripped signature: HIGH finding shown',
+          $('#findings-list').textContent.includes('Signature segment is empty'));
+
       // --- alg none + structural errors ---
-      const noneToken = btoa(JSON.stringify({alg:'none',typ:'JWT'})).replace(/=+$/,'') + '.' +
-                        btoa(JSON.stringify({sub:'x', exp: 1600000000})).replace(/=+$/,'') + '.';
+      const JU = doc.defaultView.JWTUtils;
+      const seg = (obj) => JU.bytesToB64url(new TextEncoder().encode(JSON.stringify(obj)));
+      const noneToken = seg({alg:'none',typ:'JWT'}) + '.' + seg({sub:'x', exp: 1600000000}) + '.';
       $('#token-input').value = noneToken;
       $('#token-input').dispatchEvent(new Event('input', {bubbles:true})); await sleep(400);
       out('alg none: UNSIGNED badge', $('#status-strip').textContent.includes('UNSIGNED'));

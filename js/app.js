@@ -3,8 +3,8 @@
 (function () {
   'use strict';
   const U = window.JWTUtils, P = window.JWTParser, C = window.JWTClaims,
-        V = window.JWTVerify, D = window.JWTDecrypt, A = window.JWTAnalysis,
-        SAMPLES = window.JWTSamples || {};
+        K = window.JWTKeys, V = window.JWTVerify, D = window.JWTDecrypt,
+        A = window.JWTAnalysis, SAMPLES = window.JWTSamples || {};
 
   const $ = (sel) => document.querySelector(sel);
   const el = {
@@ -22,9 +22,9 @@
     nestedNav: $('#nested-nav'), sampleButtons: $('#sample-buttons')
   };
 
-  let current = null;          // last parse result
-  let envelope = null;         // { token, key } of the JWE we descended from
-  let pendingVerifyKey = null; // key to prefill after loading a nested token
+  let current = null;   // last parse result
+  let renderSeq = 0;     // bumped on every render; stale async results are dropped
+  let envelopes = [];    // stack of { token, key } JWEs we descended from
 
   /* ---------------- segmented controls ---------------- */
   function initSegSelect(id) {
@@ -32,8 +32,7 @@
     box.addEventListener('click', (ev) => {
       const btn = ev.target.closest('button[data-val]');
       if (!btn) return;
-      box.dataset.value = btn.dataset.val;
-      box.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      setSegValue(box, btn.dataset.val);
     });
     return box;
   }
@@ -71,19 +70,27 @@
            (icon ? '<i class="fa-solid ' + icon + '" aria-hidden="true"></i>' : '') + U.escapeHtml(text) + '</span>';
   }
 
+  function timeBadgeHTML(status) {
+    const map = { active: 'b-ok', expired: 'b-bad', 'not-yet-valid': 'b-warn', 'no-expiry': 'b-warn' };
+    return '<span class="badge ' + map[status.state] + '" id="time-badge" title="' + U.escapeHtml(status.detail) + '">' +
+           '<i class="fa-solid fa-clock" aria-hidden="true"></i><span>' +
+           U.escapeHtml(status.label + ' — ' + status.detail) + '</span></span>';
+  }
+
+  let lastTimeBadge = '';
+
   function renderStatusStrip(parsed) {
     let html = '';
     if (parsed.type === 'JWS') {
       const alg = String(parsed.header.alg || '?');
       const unsigned = alg.toLowerCase() === 'none';
-      html += badge(unsigned ? 'b-bad' : 'b-type', unsigned ? 'fa-shield-slash' : 'fa-file-signature',
+      html += badge(unsigned ? 'b-bad' : 'b-type', unsigned ? 'fa-ban' : 'fa-file-signature',
                     unsigned ? 'UNSIGNED' : 'SIGNED · JWS');
       html += badge('b-alg', 'fa-gears', 'alg ' + alg);
       const status = parsed.payload ? C.timeStatus(parsed.payload) : null;
       if (status) {
-        const map = { active: 'b-ok', expired: 'b-bad', 'not-yet-valid': 'b-warn', 'no-expiry': 'b-warn' };
-        html += '<span class="badge ' + map[status.state] + '" id="time-badge" title="' + U.escapeHtml(status.detail) + '">' +
-                '<i class="fa-solid fa-clock" aria-hidden="true"></i><span>' + U.escapeHtml(status.label + ' — ' + status.detail) + '</span></span>';
+        lastTimeBadge = timeBadgeHTML(status);
+        html += lastTimeBadge;
       }
     } else {
       html += badge('b-enc', 'fa-lock', 'ENCRYPTED · JWE');
@@ -100,11 +107,10 @@
     if (!node || !current || !current.ok || current.type !== 'JWS' || !current.payload) return;
     const status = C.timeStatus(current.payload);
     if (!status) return;
-    const map = { active: 'b-ok', expired: 'b-bad', 'not-yet-valid': 'b-warn', 'no-expiry': 'b-warn' };
-    node.className = 'badge ' + map[status.state];
-    node.title = status.detail;
-    node.innerHTML = '<i class="fa-solid fa-clock" aria-hidden="true"></i><span>' +
-                     U.escapeHtml(status.label + ' — ' + status.detail) + '</span>';
+    const html = timeBadgeHTML(status);
+    if (html === lastTimeBadge) return; // label unchanged — skip the DOM write
+    lastTimeBadge = html;
+    node.outerHTML = html;
   }
 
   function renderHeaderPanel(parsed) {
@@ -119,7 +125,7 @@
   }
 
   function formatClaimValue(key, value) {
-    if (C.isTimeClaim(key) && C.looksLikeTimestamp(value)) {
+    if (C.isTimeClaim(key) && C.isNumericDate(value)) {
       const t = C.formatTimestamp(value);
       return '<span class="claim-time"><span class="mono">' + value + '</span>' +
              '<span class="time-abs">' + U.escapeHtml(t.utc) + '</span>' +
@@ -178,6 +184,7 @@
 
   function render(parsed) {
     current = parsed;
+    renderSeq++; // invalidates in-flight verify/decrypt results
     const hasToken = !!parsed.token;
     show(el.emptyState, !hasToken);
     el.statusStrip.classList.add('hidden');
@@ -224,65 +231,78 @@
         el.verifyHint.innerHTML = alg.startsWith('HS')
           ? 'Algorithm <code>' + U.escapeHtml(alg) + '</code> &mdash; paste the <strong>shared secret</strong>.'
           : 'Algorithm <code>' + U.escapeHtml(alg) + '</code> &mdash; paste the issuer\'s <strong>public key</strong> (PEM or JWK).';
-        if (pendingVerifyKey !== null) {
-          el.verifyKey.value = pendingVerifyKey;
-          pendingVerifyKey = null;
-        }
       }
       el.verdict.innerHTML = '';
-      el.verdict.className = 'verdict';
     } else {
+      const kind = K.keyMgmtKind(alg);
+      const keyHint =
+        kind === 'rsa' ? ' Paste the recipient\'s <strong>RSA private key</strong> (PKCS#8 PEM or JWK).' :
+        kind ? ' Paste the <strong>symmetric key</strong> (base64 / hex / JWK).' :
+        ' This key-management algorithm is <strong>not supported</strong> by this tool.';
       el.decryptHint.innerHTML = 'Key management <code>' + U.escapeHtml(String(parsed.header.alg || '?')) +
-        '</code>, content encryption <code>' + U.escapeHtml(String(parsed.header.enc || '?')) + '</code>.' +
-        (/^RSA/.test(alg) ? ' Paste the recipient\'s <strong>RSA private key</strong> (PKCS#8 PEM or JWK).'
-                          : ' Paste the <strong>symmetric key</strong> (base64 / hex / JWK).');
+        '</code>, content encryption <code>' + U.escapeHtml(String(parsed.header.enc || '?')) + '</code>.' + keyHint;
       show(el.panelVerify, false);
       el.decryptResult.innerHTML = '';
     }
 
+    const wasHidden = el.results.classList.contains('hidden');
     show(el.results, true);
-    replayReveals();
+    if (wasHidden) replayReveals(); // only animate the hidden -> visible transition
   }
 
   function analyzeInput() {
     render(P.parse(el.input.value));
   }
 
+  /* ---------------- verdict building blocks ---------------- */
+  // `message` must be pre-escaped (or static) — it is inserted as HTML
+  function verdictHTML(kind, icon, title, message) {
+    return '<div class="verdict ' + kind + '"><i class="fa-solid ' + icon + '" aria-hidden="true"></i>' +
+           '<div><strong>' + U.escapeHtml(title) + '</strong><p>' + message + '</p></div></div>';
+  }
+  function spinnerHTML(text) {
+    return '<div class="verdict pending"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i> ' + text + '</div>';
+  }
+
   /* ---------------- verification ---------------- */
   async function doVerify() {
     if (!current || !current.ok) return;
-    el.verdict.className = 'verdict pending';
-    el.verdict.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i> verifying&hellip;';
-    const res = await V.verify(current, el.verifyKey.value, {
+    const parsed = current, seq = renderSeq;
+    el.verdict.innerHTML = spinnerHTML('verifying&hellip;');
+    const res = await V.verify(parsed, el.verifyKey.value, {
       format: verifyFormat.dataset.value,
       secretEncoding: verifyEncoding.dataset.value
     });
-    if (res.valid) {
-      el.verdict.className = 'verdict valid';
-      el.verdict.innerHTML = '<i class="fa-solid fa-circle-check" aria-hidden="true"></i>' +
-        '<div><strong>SIGNATURE VALID</strong><p>The token was signed with the corresponding key and has not been altered.</p></div>';
-    } else {
-      el.verdict.className = 'verdict invalid';
-      el.verdict.innerHTML = '<i class="fa-solid fa-circle-xmark" aria-hidden="true"></i>' +
-        '<div><strong>NOT VERIFIED</strong><p>' + U.escapeHtml(res.error || 'Unknown error.') + '</p></div>';
-    }
+    if (seq !== renderSeq) return; // a different token is on screen now
+    el.verdict.innerHTML = res.valid
+      ? verdictHTML('valid', 'fa-circle-check', 'SIGNATURE VALID',
+          'The token was signed with the corresponding key and has not been altered.')
+      : verdictHTML('invalid', 'fa-circle-xmark', 'NOT VERIFIED', U.escapeHtml(res.error || 'Unknown error.'));
   }
 
   /* ---------------- decryption ---------------- */
+  function findSampleByToken(token) {
+    for (const id of Object.keys(SAMPLES)) {
+      if (SAMPLES[id].token === token) return SAMPLES[id];
+    }
+    return null;
+  }
+
   async function doDecrypt() {
     if (!current || !current.ok || current.type !== 'JWE') return;
-    el.decryptResult.innerHTML = '<div class="verdict pending"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i> decrypting&hellip;</div>';
-    const res = await D.decrypt(current, el.decryptKey.value, {
+    const parsed = current, seq = renderSeq;
+    el.decryptResult.innerHTML = spinnerHTML('decrypting&hellip;');
+    const res = await D.decrypt(parsed, el.decryptKey.value, {
       format: decryptFormat.dataset.value,
       secretEncoding: decryptEncoding.dataset.value
     });
+    if (seq !== renderSeq) return; // a different token is on screen now
     if (!res.ok) {
-      el.decryptResult.innerHTML = '<div class="verdict invalid"><i class="fa-solid fa-circle-xmark" aria-hidden="true"></i>' +
-        '<div><strong>DECRYPTION FAILED</strong><p>' + U.escapeHtml(res.error) + '</p></div></div>';
+      el.decryptResult.innerHTML = verdictHTML('invalid', 'fa-circle-xmark', 'DECRYPTION FAILED', U.escapeHtml(res.error));
       return;
     }
-    let html = '<div class="verdict valid"><i class="fa-solid fa-lock-open" aria-hidden="true"></i>' +
-      '<div><strong>DECRYPTED</strong><p>Authenticity confirmed by the AEAD tag &mdash; the ciphertext was produced with this key and is intact.</p></div></div>';
+    let html = verdictHTML('valid', 'fa-lock-open', 'DECRYPTED',
+      'Authenticity confirmed by the AEAD tag &mdash; the ciphertext was produced with this key and is intact.');
     if (res.isNested) {
       html += '<p class="panel-hint">The plaintext is itself a compact token (nested JWT):</p>' +
         '<pre class="json mono plaintext-box">' + U.escapeHtml(res.plaintext) + '</pre>' +
@@ -300,12 +320,14 @@
     const nestedBtn = document.getElementById('btn-nested');
     if (nestedBtn) {
       nestedBtn.addEventListener('click', () => {
-        envelope = { token: current.token, key: el.decryptKey.value };
-        // if this is our demo JWE, prefill the nested token's verification secret
-        if (SAMPLES.jwe && current.token === SAMPLES.jwe.token && SAMPLES.jwe.nestedKey) {
-          pendingVerifyKey = SAMPLES.jwe.nestedKey;
-          setSegValue(verifyFormat, 'secret');
-          setSegValue(verifyEncoding, 'utf8');
+        envelopes.push({ token: parsed.token, key: el.decryptKey.value });
+        // demo convenience: when the envelope is one of our samples, prefill
+        // the nested token's verification key
+        const sample = findSampleByToken(parsed.token);
+        if (sample && sample.nestedKey) {
+          el.verifyKey.value = sample.nestedKey;
+          setSegValue(verifyFormat, 'auto');
+          setSegValue(verifyEncoding, sample.nestedKeyEncoding || 'utf8');
         }
         el.input.value = res.plaintext;
         show(el.nestedNav, true);
@@ -317,17 +339,15 @@
 
   /* ---------------- samples / clear / back ---------------- */
   function loadSample(sample) {
-    envelope = null;
+    envelopes = [];
     show(el.nestedNav, false);
     el.input.value = sample.token;
-    if (sample.keyFormat === 'pem' || sample.keyFormat === 'jwk') {
-      el.verifyKey.value = sample.key; setSegValue(verifyFormat, 'auto');
-      el.decryptKey.value = sample.key; setSegValue(decryptFormat, 'auto');
-    } else {
-      el.verifyKey.value = sample.key;
-      setSegValue(verifyFormat, 'secret');
-      setSegValue(verifyEncoding, sample.secretEncoding || 'utf8');
-    }
+    el.verifyKey.value = sample.key;
+    el.decryptKey.value = sample.key;
+    // auto-detection classifies secrets/PEM/JWK on its own — never pin a format
+    setSegValue(verifyFormat, 'auto');
+    setSegValue(decryptFormat, 'auto');
+    if (sample.secretEncoding) setSegValue(verifyEncoding, sample.secretEncoding);
     analyzeInput();
   }
 
@@ -344,17 +364,17 @@
 
   $('#btn-clear').addEventListener('click', () => {
     el.input.value = ''; el.verifyKey.value = ''; el.decryptKey.value = '';
-    envelope = null; show(el.nestedNav, false);
+    envelopes = []; show(el.nestedNav, false);
     analyzeInput();
     el.input.focus();
   });
 
   $('#btn-back').addEventListener('click', () => {
-    if (!envelope) return;
-    el.input.value = envelope.token;
-    el.decryptKey.value = envelope.key;
-    envelope = null;
-    show(el.nestedNav, false);
+    const env = envelopes.pop();
+    if (!env) return;
+    el.input.value = env.token;
+    el.decryptKey.value = env.key;
+    show(el.nestedNav, envelopes.length > 0);
     analyzeInput();
   });
 
@@ -390,7 +410,7 @@
   /* ---------------- events ---------------- */
   let debounce = null;
   el.input.addEventListener('input', () => {
-    show(el.nestedNav, false); envelope = null;
+    show(el.nestedNav, false); envelopes = [];
     clearTimeout(debounce);
     debounce = setTimeout(analyzeInput, 150);
   });

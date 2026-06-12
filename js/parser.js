@@ -79,7 +79,8 @@
         return result;
       }
       const payloadJSON = U.tryParseJSON(result.payloadRaw);
-      if (payloadJSON.ok && typeof payloadJSON.value === 'object' && payloadJSON.value !== null) {
+      if (payloadJSON.ok && typeof payloadJSON.value === 'object' &&
+          payloadJSON.value !== null && !Array.isArray(payloadJSON.value)) {
         result.payload = payloadJSON.value;
       } else {
         result.warnings.push('The payload is not a JSON claims object — shown as raw text.');
@@ -96,16 +97,16 @@
       if (!result.header.alg) result.warnings.push('The header has no "alg" field — verification is impossible.');
     } else {
       // JWE: header.encryptedKey.iv.ciphertext.tag
-      const names = ['protected header', 'encrypted key', 'initialization vector', 'ciphertext', 'authentication tag'];
-      result.jwe = {};
-      const fields = ['headerB64', 'encryptedKey', 'iv', 'ciphertext', 'tag'];
-      for (let i = 0; i < 5; i++) {
+      const names = ['', 'encrypted key', 'initialization vector', 'ciphertext', 'authentication tag'];
+      const fields = ['', 'encryptedKey', 'iv', 'ciphertext', 'tag'];
+      result.jwe = { headerB64: parts[0] };
+      for (let i = 1; i < 5; i++) {
         if (!parts[i] && i !== 1) { // encrypted key may be empty (alg "dir" / ECDH-ES)
           result.errors.push('The ' + names[i] + ' segment is empty.');
           return result;
         }
         try {
-          result.jwe[fields[i]] = i === 0 ? parts[0] : U.b64urlToBytes(parts[i] || '');
+          result.jwe[fields[i]] = U.b64urlToBytes(parts[i] || '');
         } catch (e) {
           result.errors.push('The ' + names[i] + ' segment is not valid base64url: ' + e.message);
           return result;

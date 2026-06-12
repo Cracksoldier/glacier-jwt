@@ -57,13 +57,16 @@
     return !!(info && info.time);
   }
 
-  /** Sanity window: seconds-since-epoch between 1990 and 2200. */
-  function looksLikeTimestamp(value) {
-    return typeof value === 'number' && isFinite(value) && value > 631152000 && value < 7258118400;
+  /** RFC 7519 NumericDate: any finite number of seconds since the epoch. */
+  function isNumericDate(value) {
+    return typeof value === 'number' && isFinite(value);
   }
 
   function formatTimestamp(seconds) {
     const d = new Date(seconds * 1000);
+    if (!isFinite(d.getTime())) {
+      return { utc: '(out of Date range)', local: '(out of Date range)' };
+    }
     return {
       utc: d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC'),
       local: d.toLocaleString(undefined, {
@@ -99,11 +102,14 @@
     const now = (nowMs !== undefined ? nowMs : Date.now()) / 1000;
     if (!payload || typeof payload !== 'object') return null;
     const exp = payload.exp, nbf = payload.nbf;
-    if (looksLikeTimestamp(nbf) && nbf > now) {
+    // expired outranks not-yet-valid when both apply
+    if (isNumericDate(exp) && exp <= now) {
+      return { state: 'expired', label: 'Expired', detail: 'Expired ' + relativeTime(exp, nowMs) + '.' };
+    }
+    if (isNumericDate(nbf) && nbf > now) {
       return { state: 'not-yet-valid', label: 'Not yet valid', detail: 'Becomes valid ' + relativeTime(nbf, nowMs) + '.' };
     }
-    if (looksLikeTimestamp(exp)) {
-      if (exp <= now) return { state: 'expired', label: 'Expired', detail: 'Expired ' + relativeTime(exp, nowMs) + '.' };
+    if (isNumericDate(exp)) {
       return { state: 'active', label: 'Active', detail: 'Expires ' + relativeTime(exp, nowMs) + '.' };
     }
     return { state: 'no-expiry', label: 'No expiry', detail: 'The token has no (usable) "exp" claim.' };
@@ -113,7 +119,7 @@
     describeClaim: describeClaim,
     describeHeader: describeHeader,
     isTimeClaim: isTimeClaim,
-    looksLikeTimestamp: looksLikeTimestamp,
+    isNumericDate: isNumericDate,
     formatTimestamp: formatTimestamp,
     relativeTime: relativeTime,
     timeStatus: timeStatus

@@ -12,7 +12,9 @@ No backend, no build step, no network calls with your token: everything runs in 
 - **Decrypt JWE** — key management `RSA-OAEP`, `RSA-OAEP-256`, `A128/192/256KW`, `dir`;
   content encryption `A128/192/256GCM`, `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`;
   `zip: DEF` payloads are inflated automatically. Nested JWTs found inside a JWE can be
-  analyzed in place with one click.
+  analyzed in place with one click. *Caveat:* Chromium-based browsers (Chrome/Edge) reject
+  192-bit AES keys in WebCrypto, so the `A192*` variants only work in Firefox — the app
+  reports this clearly instead of a generic failure.
 - **Security findings** — flags `alg: none`, expired / not-yet-valid tokens, missing `exp`/`aud`/`jti`,
   very long lifetimes, `jku`/`jwk`/`x5u` header injection vectors, deprecated `RSA1_5`, and
   sensitive-looking claims in plaintext payloads.

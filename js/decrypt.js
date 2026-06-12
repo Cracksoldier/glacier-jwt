@@ -1,12 +1,22 @@
 /* decrypt.js — JWE decryption via WebCrypto.
    Key management: RSA-OAEP, RSA-OAEP-256, A128/192/256KW, dir.
    Content encryption: A128/192/256GCM, A128CBC-HS256, A192CBC-HS384, A256CBC-HS512.
-   Depends on: utils.js, keys.js */
+   Depends on: utils.js, parser.js, keys.js */
 (function (root) {
   'use strict';
   const U = root.JWTUtils;
+  const P = root.JWTParser;
   const K = root.JWTKeys;
   const subtle = (root.crypto || {}).subtle;
+
+  /** importKey('raw', ...) with the Chromium AES-192 limitation named. */
+  async function importAesKey(bytes, algoName, usages) {
+    try {
+      return await subtle.importKey('raw', bytes, { name: algoName }, false, usages);
+    } catch (e) {
+      throw K.aesImportError(e, bytes.length);
+    }
+  }
 
   const CBC_PARAMS = {
     'A128CBC-HS256': { keyLen: 32, hash: 'SHA-256', tagLen: 16 },
@@ -55,7 +65,7 @@
         throw new Error(enc + ' needs a ' + GCM_KEYLEN[enc] + '-byte CEK, got ' + cek.length + ' — the key probably does not match this token.');
       }
       if (jwe.iv.length !== 12) throw new Error(enc + ' requires a 96-bit IV, got ' + (jwe.iv.length * 8) + ' bits.');
-      const key = await subtle.importKey('raw', cek, { name: 'AES-GCM' }, false, ['decrypt']);
+      const key = await importAesKey(cek, 'AES-GCM', ['decrypt']);
       try {
         const plain = await subtle.decrypt(
           { name: 'AES-GCM', iv: jwe.iv, additionalData: aad, tagLength: 128 },
@@ -85,7 +95,7 @@
       for (let i = 0; i < cbc.tagLen; i++) diff |= expectedTag[i] ^ jwe.tag[i];
       if (diff !== 0) throw new Error('Authentication tag mismatch — wrong key, or the token was modified.');
 
-      const encKey = await subtle.importKey('raw', encKeyBytes, { name: 'AES-CBC' }, false, ['decrypt']);
+      const encKey = await importAesKey(encKeyBytes, 'AES-CBC', ['decrypt']);
       try {
         const plain = await subtle.decrypt({ name: 'AES-CBC', iv: jwe.iv }, encKey, jwe.ciphertext);
         return new Uint8Array(plain);
@@ -105,14 +115,9 @@
     return new Uint8Array(await new Response(stream).arrayBuffer());
   }
 
-  /** Heuristic: does the plaintext look like a nested compact JWS/JWE? */
-  function looksLikeToken(text) {
-    return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)?$/.test(text.trim());
-  }
-
   /**
    * Decrypt a parsed JWE with user-provided key material.
-   * Returns { ok, plaintext?, plaintextBytes?, isNested?, json?, error? }.
+   * Returns { ok, plaintext?, isNested?, json?, error? }.
    */
   async function decrypt(parsed, keyText, opts) {
     if (!parsed || parsed.type !== 'JWE') return { ok: false, error: 'Not an encrypted token (JWE).' };
@@ -127,9 +132,10 @@
       if (parsed.header.zip === 'DEF') plainBytes = await inflateRaw(plainBytes);
 
       const plaintext = U.bytesToStr(plainBytes);
-      const out = { ok: true, plaintext: plaintext, plaintextBytes: plainBytes };
-      const cty = String(parsed.header.cty || '').toUpperCase();
-      out.isNested = cty === 'JWT' || cty === 'APPLICATION/JWT' || looksLikeToken(plaintext);
+      const out = { ok: true, plaintext: plaintext };
+      // nested iff the plaintext actually parses as a compact token — the cty
+      // header is just a hint and is sometimes wrong in the wild
+      out.isNested = P.parse(plaintext).ok;
       if (!out.isNested) {
         const json = U.tryParseJSON(plaintext);
         if (json.ok) out.json = json.value;
@@ -140,5 +146,5 @@
     }
   }
 
-  root.JWTDecrypt = { decrypt: decrypt, looksLikeToken: looksLikeToken };
+  root.JWTDecrypt = { decrypt: decrypt };
 }(typeof window !== 'undefined' ? window : globalThis));

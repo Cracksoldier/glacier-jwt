@@ -16,9 +16,15 @@
     // --- header-level checks (both JWS and JWE) ---
     if (alg.toLowerCase() === 'none') {
       findings.push({
-        severity: SEVERITY.HIGH, icon: 'fa-shield-slash',
+        severity: SEVERITY.HIGH, icon: 'fa-ban',
         title: 'Unsigned token (alg "none")',
         detail: 'This token carries no signature at all. Any consumer that accepts it can be fed arbitrary claims. "none" must be rejected by verifiers.'
+      });
+    } else if (parsed.type === 'JWS' && alg && parsed.signatureBytes && !parsed.signatureBytes.length) {
+      findings.push({
+        severity: SEVERITY.HIGH, icon: 'fa-scissors',
+        title: 'Signature segment is empty',
+        detail: 'The header claims ' + alg + ', but the signature was removed — a classic signature-stripping attack. Verifiers must reject this token.'
       });
     }
     if (header.jku) {
@@ -107,7 +113,19 @@
       }
     }
 
-    if (C.looksLikeTimestamp(payload.exp) && C.looksLikeTimestamp(payload.iat)) {
+    for (const key of ['exp', 'nbf', 'iat']) {
+      if (C.isNumericDate(payload[key]) && payload[key] > 1e12) {
+        findings.push({
+          severity: SEVERITY.WARN, icon: 'fa-stopwatch',
+          title: '"' + key + '" looks like milliseconds',
+          detail: 'NumericDate values are seconds since the epoch (RFC 7519). ' + payload[key] + ' as seconds is year ' +
+            (isFinite(new Date(payload[key] * 1000).getTime()) ? new Date(payload[key] * 1000).getUTCFullYear() : '> 275760') +
+            ' — the issuer probably emitted milliseconds.'
+        });
+      }
+    }
+
+    if (C.isNumericDate(payload.exp) && C.isNumericDate(payload.iat)) {
       const lifetime = payload.exp - payload.iat;
       if (lifetime > 86400 * 30) {
         findings.push({
@@ -117,7 +135,7 @@
         });
       }
     }
-    if (C.looksLikeTimestamp(payload.iat) && payload.iat > now + 300) {
+    if (C.isNumericDate(payload.iat) && payload.iat > now + 300) {
       findings.push({
         severity: SEVERITY.WARN, icon: 'fa-clock-rotate-left',
         title: '"iat" lies in the future',

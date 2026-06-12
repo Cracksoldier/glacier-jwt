@@ -13,6 +13,30 @@
   };
   const CURVE_BY_ALG = { ES256: 'P-256', ES384: 'P-384', ES512: 'P-521' };
 
+  /* Single registry of supported JWE key-management algorithms — drives the
+     import logic, the "Supported: ..." error text, and the UI hints. */
+  const KEY_MGMT = {
+    'RSA-OAEP': { kind: 'rsa', hash: 'SHA-1' },
+    'RSA-OAEP-256': { kind: 'rsa', hash: 'SHA-256' },
+    A128KW: { kind: 'aeskw', keyBytes: 16 },
+    A192KW: { kind: 'aeskw', keyBytes: 24 },
+    A256KW: { kind: 'aeskw', keyBytes: 32 },
+    dir: { kind: 'dir' }
+  };
+  const SUPPORTED_KEY_MGMT = Object.keys(KEY_MGMT).join(', ');
+
+  function keyMgmtKind(alg) {
+    return KEY_MGMT[alg] ? KEY_MGMT[alg].kind : null;
+  }
+
+  /** Chromium's WebCrypto rejects 192-bit AES keys outright — name the real cause. */
+  function aesImportError(e, keyByteLength) {
+    if (keyByteLength === 24) {
+      return new Error('192-bit AES keys are not supported by Chromium-based browsers (Chrome/Edge) — try Firefox.');
+    }
+    return e;
+  }
+
   function requireSubtle() {
     if (!subtle) {
       throw new Error('WebCrypto is unavailable. Open this page in a modern browser (https:// or file:// both work).');
@@ -82,6 +106,7 @@
       if (format === 'jwk') {
         const jwk = JSON.parse(keyText.trim());
         if (jwk.kty !== 'oct' || !jwk.k) throw new Error('An HMAC JWK must have kty "oct" and a "k" member.');
+        delete jwk.alg; delete jwk.use; delete jwk.key_ops; // the JWS header decides
         const key = await subtle.importKey('jwk', jwk, params.import, false, ['verify']);
         return { key: key, verifyParams: params.verify };
       }
@@ -119,11 +144,14 @@
   async function importDecryptionKey(alg, keyText, opts) {
     requireSubtle();
     opts = opts || {};
+    const spec = KEY_MGMT[alg];
+    if (!spec) {
+      throw new Error('Unsupported key-management algorithm "' + alg + '". Supported: ' + SUPPORTED_KEY_MGMT + '.');
+    }
     const format = opts.format && opts.format !== 'auto' ? opts.format : detectFormat(keyText);
 
-    if (alg === 'RSA-OAEP' || alg === 'RSA-OAEP-256') {
-      const hash = alg === 'RSA-OAEP' ? 'SHA-1' : 'SHA-256';
-      const importParams = { name: 'RSA-OAEP', hash: hash };
+    if (spec.kind === 'rsa') {
+      const importParams = { name: 'RSA-OAEP', hash: spec.hash };
       if (format === 'jwk') {
         const jwk = JSON.parse(keyText.trim());
         delete jwk.alg; delete jwk.use; delete jwk.key_ops;
@@ -144,34 +172,34 @@
       throw new Error(alg + ' needs the recipient\'s RSA private key (PKCS#8 PEM or JWK).');
     }
 
-    if (alg === 'A128KW' || alg === 'A192KW' || alg === 'A256KW' || alg === 'dir') {
-      let bytes;
-      if (format === 'jwk') {
-        const jwk = JSON.parse(keyText.trim());
-        if (jwk.kty !== 'oct' || !jwk.k) throw new Error('A symmetric JWK must have kty "oct" and a "k" member.');
-        bytes = U.b64urlToBytes(jwk.k);
-      } else if (format === 'pem') {
-        throw new Error(alg + ' uses a symmetric key — paste it as base64/hex/JWK, not PEM.');
-      } else {
-        bytes = secretToBytes(keyText, opts.secretEncoding || 'base64');
-      }
-      if (alg === 'dir') return { kind: 'dir', key: bytes };
-      const expected = parseInt(alg.slice(1, 4), 10) / 8;
-      if (bytes.length !== expected) {
-        throw new Error(alg + ' needs a ' + expected + '-byte key, got ' + bytes.length + ' bytes.');
-      }
-      const key = await subtle.importKey('raw', bytes, { name: 'AES-KW' }, false, ['unwrapKey']);
-      return { kind: 'aeskw', key: key };
+    // symmetric: aeskw or dir
+    let bytes;
+    if (format === 'jwk') {
+      const jwk = JSON.parse(keyText.trim());
+      if (jwk.kty !== 'oct' || !jwk.k) throw new Error('A symmetric JWK must have kty "oct" and a "k" member.');
+      bytes = U.b64urlToBytes(jwk.k);
+    } else if (format === 'pem') {
+      throw new Error(alg + ' uses a symmetric key — paste it as base64/hex/JWK, not PEM.');
+    } else {
+      bytes = secretToBytes(keyText, opts.secretEncoding || 'base64');
     }
-
-    throw new Error('Unsupported key-management algorithm "' + alg + '". Supported: RSA-OAEP, RSA-OAEP-256, A128KW, A192KW, A256KW, dir.');
+    if (spec.kind === 'dir') return { kind: 'dir', key: bytes };
+    if (bytes.length !== spec.keyBytes) {
+      throw new Error(alg + ' needs a ' + spec.keyBytes + '-byte key, got ' + bytes.length + ' bytes.');
+    }
+    let key;
+    try {
+      key = await subtle.importKey('raw', bytes, { name: 'AES-KW' }, false, ['unwrapKey']);
+    } catch (e) {
+      throw aesImportError(e, bytes.length);
+    }
+    return { kind: 'aeskw', key: key };
   }
 
   root.JWTKeys = {
-    detectFormat: detectFormat,
-    secretToBytes: secretToBytes,
     importVerificationKey: importVerificationKey,
     importDecryptionKey: importDecryptionKey,
-    HASH_BY_ALG: HASH_BY_ALG
+    keyMgmtKind: keyMgmtKind,
+    aesImportError: aesImportError
   };
 }(typeof window !== 'undefined' ? window : globalThis));

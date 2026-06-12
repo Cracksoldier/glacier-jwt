@@ -13,7 +13,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 for (const f of ['utils.js', 'parser.js', 'claims.js', 'keys.js', 'verify.js', 'decrypt.js', 'analysis.js']) {
   await import('file://' + join(root, 'js', f).replace(/\\/g, '/'));
 }
-const { JWTUtils: U, JWTParser, JWTVerify, JWTDecrypt } = globalThis;
+const { JWTUtils: U, JWTParser, JWTClaims, JWTVerify, JWTDecrypt, JWTAnalysis } = globalThis;
 
 const b64url = (bytes) => U.bytesToB64url(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
 const enc = (obj) => b64url(new TextEncoder().encode(JSON.stringify(obj)));
@@ -175,6 +175,49 @@ check('JWE rejects wrong key', decBad.ok === false);
   const pRfc = JWTParser.parse(rfcToken);
   check('RFC 7515 A.1 token verifies via oct JWK', (await JWTVerify.verify(pRfc, rfcJwk)).valid === true);
 }
+
+// dir + A256GCM whose plaintext is a nested JWS (parser-based isNested)
+{
+  const cek = webcrypto.getRandomValues(new Uint8Array(32));
+  const headerObj = { alg: 'dir', enc: 'A256GCM' };
+  const headerB64 = enc(headerObj);
+  const iv = webcrypto.getRandomValues(new Uint8Array(12));
+  const gcmKey = await subtle.importKey('raw', cek, { name: 'AES-GCM' }, false, ['encrypt']);
+  const sealed = new Uint8Array(await subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(headerB64), tagLength: 128 },
+    gcmKey, new TextEncoder().encode(hsToken)
+  ));
+  const tok = [headerB64, '', b64url(iv), b64url(sealed.slice(0, -16)), b64url(sealed.slice(-16))].join('.');
+  const d = await JWTDecrypt.decrypt(JWTParser.parse(tok), b64url(cek), { secretEncoding: 'base64' });
+  check('dir+GCM nested JWS detected via parser', d.ok === true && d.isNested === true);
+}
+
+// ---------- review-fix regressions ----------
+{
+  const hl = U.highlightJSON({ alg: 'HS256', name: "O'Brien", ok: true });
+  check('highlightJSON emits key/string spans', hl.includes('j-key') && hl.includes('j-str'));
+  check('highlightJSON keeps entities intact', !hl.includes('&#<span') && hl.includes('&#39;'));
+  check('highlightJSON: no bool spans inside strings', !U.highlightJSON({ note: 'true' }).includes('j-bool'));
+}
+check('Old NumericDate counts as expired', JWTClaims.timeStatus({ exp: 100000000 }).state === 'expired');
+check('Expired outranks not-yet-valid', JWTClaims.timeStatus({ exp: NOW - 86400, nbf: NOW + 86400 }).state === 'expired');
+check('Huge timestamp formats without throwing', JWTClaims.formatTimestamp(9e15).utc.includes('out of'));
+{
+  const stripped = JWTParser.parse(hsToken.split('.').slice(0, 2).join('.') + '.');
+  const findings = JWTAnalysis.analyze(stripped);
+  check('Stripped signature is a HIGH finding', findings.some(f => f.title === 'Signature segment is empty' && f.severity === 'high'));
+}
+{
+  const msToken = await signHS256({ alg: 'HS256' }, { exp: NOW * 1000 }, HS_SECRET);
+  const findings = JWTAnalysis.analyze(JWTParser.parse(msToken));
+  check('Millisecond exp flagged', findings.some(f => f.title.includes('milliseconds')));
+}
+{
+  const arrToken = enc({ alg: 'none' }) + '.' + b64url(new TextEncoder().encode('[1,2,3]')) + '.';
+  const p = JWTParser.parse(arrToken);
+  check('Array payload not treated as claims', p.ok === true && p.payload === null);
+}
+check('base64 with interior newline decodes', U.b64ToBytes('AAAA\nAAAA').length === 6);
 
 // negative structural cases
 check('Garbage input rejected', JWTParser.parse('not a token!!').ok === false);
