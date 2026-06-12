@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GLACIER — JWT Token Forensics</title>
+  <meta name="description" content="Client-side JWT / JWE bearer token analyzer: decode, verify signatures, decrypt — nothing leaves your browser.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9D%84%EF%B8%8F%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="frost-bg" aria-hidden="true"></div>
+  <div class="frost-grain" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="brand">
+      <i class="fa-solid fa-snowflake brand-mark" aria-hidden="true"></i>
+      <div class="brand-text">
+        <h1>GLACIER</h1>
+        <span class="tagline">JWT / Bearer&nbsp;Token&nbsp;Forensics</span>
+      </div>
+    </div>
+    <div class="privacy-pill" title="No network requests are made with your token. Everything runs in this tab.">
+      <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+      <span>100% client-side &mdash; your token never leaves this browser</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ======================= INTAKE ======================= -->
+    <section class="panel input-panel reveal">
+      <div class="panel-title">
+        <span><i class="fa-solid fa-inbox" aria-hidden="true"></i> Token intake</span>
+        <div class="toolbar">
+          <span class="toolbar-label">samples:</span>
+          <span id="sample-buttons"></span>
+          <button id="btn-clear" class="ghost-btn" type="button" title="Clear everything">
+            <i class="fa-solid fa-eraser" aria-hidden="true"></i> clear
+          </button>
+        </div>
+      </div>
+      <textarea id="token-input" spellcheck="false" autocomplete="off" autocapitalize="off"
+        placeholder="Paste a bearer token here &mdash; signed (header.payload.signature) or encrypted (5 segments). &quot;Bearer &quot; prefixes and whitespace are stripped automatically."></textarea>
+      <div id="status-strip" class="status-strip hidden"></div>
+      <div id="parse-errors" class="parse-errors hidden"></div>
+    </section>
+
+    <div id="nested-nav" class="nested-nav hidden">
+      <button id="btn-back" class="ghost-btn" type="button">
+        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> back to the encrypted envelope
+      </button>
+      <span><i class="fa-solid fa-layer-group" aria-hidden="true"></i> inspecting the <strong>decrypted nested token</strong></span>
+    </div>
+
+    <!-- ======================= EMPTY STATE ======================= -->
+    <section id="empty-state" class="empty-state">
+      <i class="fa-regular fa-snowflake big-flake" aria-hidden="true"></i>
+      <h2>Nothing under the microscope yet</h2>
+      <p>Paste a JWT above, or load one of the <strong>sample tokens</strong> to see the full
+         anatomy: decoded header &amp; claims, lifecycle timeline, signature verification and
+         JWE decryption &mdash; all computed locally with WebCrypto.</p>
+    </section>
+
+    <!-- ======================= RESULTS ======================= -->
+    <div id="results" class="results hidden">
+
+      <section class="panel anatomy-panel span-all reveal">
+        <div class="panel-title">
+          <span><i class="fa-solid fa-bone" aria-hidden="true"></i> Token anatomy</span>
+          <button class="ghost-btn copy-btn" data-copy="token" type="button" title="Copy token">
+            <i class="fa-regular fa-copy" aria-hidden="true"></i> copy
+          </button>
+        </div>
+        <div id="anatomy" class="anatomy mono"></div>
+        <div id="anatomy-legend" class="legend"></div>
+      </section>
+
+      <div class="col">
+        <section class="panel reveal" id="panel-header">
+          <div class="panel-title">
+            <span><i class="fa-solid fa-heading" aria-hidden="true"></i> Protected header</span>
+            <button class="ghost-btn copy-btn" data-copy="header" type="button" title="Copy header JSON">
+              <i class="fa-regular fa-copy" aria-hidden="true"></i> copy
+            </button>
+          </div>
+          <pre id="json-header" class="json mono"></pre>
+          <div id="header-chips" class="chip-row"></div>
+        </section>
+
+        <section class="panel reveal hidden" id="panel-payload">
+          <div class="panel-title">
+            <span><i class="fa-solid fa-box-open" aria-hidden="true"></i> Payload</span>
+            <button class="ghost-btn copy-btn" data-copy="payload" type="button" title="Copy payload JSON">
+              <i class="fa-regular fa-copy" aria-hidden="true"></i> copy
+            </button>
+          </div>
+          <pre id="json-payload" class="json mono"></pre>
+        </section>
+
+        <section class="panel reveal hidden" id="panel-decrypt">
+          <div class="panel-title">
+            <span><i class="fa-solid fa-unlock-keyhole" aria-hidden="true"></i> Decryption</span>
+          </div>
+          <p class="panel-hint" id="decrypt-hint"></p>
+          <div class="key-controls">
+            <div class="seg-select" id="decrypt-format" data-value="auto">
+              <button type="button" data-val="auto" class="active">auto</button>
+              <button type="button" data-val="pem">PEM</button>
+              <button type="button" data-val="jwk">JWK</button>
+              <button type="button" data-val="secret">raw key</button>
+            </div>
+            <div class="seg-select" id="decrypt-encoding" data-value="base64">
+              <button type="button" data-val="base64" class="active">base64</button>
+              <button type="button" data-val="hex">hex</button>
+              <button type="button" data-val="utf8">utf-8</button>
+            </div>
+          </div>
+          <textarea id="decrypt-key" class="key-input mono" spellcheck="false"
+            placeholder="Private key (PKCS#8 PEM or JWK) for RSA-OAEP&hellip;, or the raw symmetric key (base64 / hex) for dir &amp; A***KW."></textarea>
+          <button id="btn-decrypt" class="action-btn" type="button">
+            <i class="fa-solid fa-unlock" aria-hidden="true"></i> decrypt token
+          </button>
+          <div id="decrypt-result" class="decrypt-result"></div>
+        </section>
+      </div>
+
+      <div class="col">
+        <section class="panel reveal hidden" id="panel-verify">
+          <div class="panel-title">
+            <span><i class="fa-solid fa-file-signature" aria-hidden="true"></i> Signature verification</span>
+          </div>
+          <p class="panel-hint" id="verify-hint"></p>
+          <div class="key-controls">
+            <div class="seg-select" id="verify-format" data-value="auto">
+              <button type="button" data-val="auto" class="active">auto</button>
+              <button type="button" data-val="secret">secret</button>
+              <button type="button" data-val="pem">PEM</button>
+              <button type="button" data-val="jwk">JWK</button>
+            </div>
+            <div class="seg-select" id="verify-encoding" data-value="utf8">
+              <button type="button" data-val="utf8" class="active">utf-8</button>
+              <button type="button" data-val="base64">base64</button>
+              <button type="button" data-val="hex">hex</button>
+            </div>
+          </div>
+          <textarea id="verify-key" class="key-input mono" spellcheck="false"
+            placeholder="HMAC secret (HS*), or public key as PEM / JWK (RS*, PS*, ES*)&hellip;"></textarea>
+          <button id="btn-verify" class="action-btn" type="button">
+            <i class="fa-solid fa-shield-halved" aria-hidden="true"></i> verify signature
+          </button>
+          <div id="verdict" class="verdict" aria-live="polite"></div>
+        </section>
+
+        <section class="panel reveal hidden" id="panel-claims">
+          <div class="panel-title">
+            <span><i class="fa-solid fa-list-check" aria-hidden="true"></i> Claims</span>
+          </div>
+          <div id="claims-list" class="claims-list"></div>
+        </section>
+
+        <section class="panel reveal" id="panel-findings">
+          <div class="panel-title">
+            <span><i class="fa-solid fa-magnifying-glass-chart" aria-hidden="true"></i> Security findings</span>
+          </div>
+          <ul id="findings-list" class="findings-list"></ul>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <span><i class="fa-solid fa-snowflake" aria-hidden="true"></i> GLACIER &mdash; static, offline-capable, zero backend.</span>
+    <span>
+      Specs:
+      <a href="https://datatracker.ietf.org/doc/html/rfc7519" target="_blank" rel="noopener">JWT&nbsp;7519</a> ·
+      <a href="https://datatracker.ietf.org/doc/html/rfc7515" target="_blank" rel="noopener">JWS&nbsp;7515</a> ·
+      <a href="https://datatracker.ietf.org/doc/html/rfc7516" target="_blank" rel="noopener">JWE&nbsp;7516</a>
+    </span>
+  </footer>
+
+  <!-- classic scripts in dependency order: ES modules would break on file:// -->
+  <script src="js/utils.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/claims.js"></script>
+  <script src="js/keys.js"></script>
+  <script src="js/verify.js"></script>
+  <script src="js/decrypt.js"></script>
+  <script src="js/analysis.js"></script>
+  <script src="js/samples.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<!-- tools/ui-test.html — headless UI smoke test. Load via http://, dump DOM, grep for PASS/FAIL. -->
+<html>
+<head><meta charset="UTF-8"><title>ui-test</title></head>
+<body style="margin:0">
+<div id="log" style="font:13px monospace;background:#fff;color:#000;padding:4px"></div>
+<iframe id="app" src="../index.html" style="width:1280px;height:1900px;border:0"></iframe>
+<script>
+  const logEl = document.getElementById('log');
+  const out = (msg, ok) => { logEl.innerHTML += (ok ? 'PASS' : 'FAIL') + '  ' + msg + '<br>'; };
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  document.getElementById('app').addEventListener('load', async () => {
+    const doc = document.getElementById('app').contentDocument;
+    const $ = (s) => doc.querySelector(s);
+    try {
+      await sleep(100);
+      const sampleBtns = doc.querySelectorAll('.sample-btn');
+      out('3 sample buttons rendered', sampleBtns.length === 3);
+      out('empty state visible initially', !$('#empty-state').classList.contains('hidden'));
+
+      // --- HS256 sample: load, check render, verify ---
+      sampleBtns[0].click(); await sleep(100);
+      out('HS sample: results visible', !$('#results').classList.contains('hidden'));
+      out('HS sample: status says SIGNED', $('#status-strip').textContent.includes('SIGNED'));
+      out('HS sample: claims rendered', doc.querySelectorAll('.claim-row').length > 5);
+      out('HS sample: anatomy has 3 segments', doc.querySelectorAll('#anatomy .seg').length === 3);
+      $('#btn-verify').click(); await sleep(600);
+      out('HS sample verifies VALID', $('#verdict').textContent.includes('SIGNATURE VALID'));
+
+      // wrong secret -> NOT VERIFIED
+      $('#verify-key').value = 'definitely-wrong'; $('#btn-verify').click(); await sleep(600);
+      out('wrong secret -> NOT VERIFIED', $('#verdict').textContent.includes('NOT VERIFIED'));
+
+      // --- RS256 sample ---
+      sampleBtns[1].click(); await sleep(100);
+      $('#btn-verify').click(); await sleep(800);
+      out('RS sample verifies VALID with PEM', $('#verdict').textContent.includes('SIGNATURE VALID'));
+
+      // --- JWE sample: decrypt + nested ---
+      sampleBtns[2].click(); await sleep(100);
+      out('JWE sample: status says ENCRYPTED', $('#status-strip').textContent.includes('ENCRYPTED'));
+      out('JWE sample: decrypt panel shown', !$('#panel-decrypt').classList.contains('hidden'));
+      out('JWE sample: verify panel hidden', $('#panel-verify').classList.contains('hidden'));
+      out('JWE sample: anatomy has 5 segments', doc.querySelectorAll('#anatomy .seg').length === 5);
+      $('#btn-decrypt').click(); await sleep(900);
+      out('JWE decrypts: DECRYPTED shown', $('#decrypt-result').textContent.includes('DECRYPTED'));
+      const nested = $('#btn-nested');
+      out('JWE: nested token button offered', !!nested);
+      if (nested) {
+        nested.click(); await sleep(150);
+        out('nested: breadcrumb visible', !$('#nested-nav').classList.contains('hidden'));
+        out('nested: now a signed JWS', $('#status-strip').textContent.includes('SIGNED'));
+        $('#btn-verify').click(); await sleep(600);
+        out('nested JWT verifies with prefilled secret', $('#verdict').textContent.includes('SIGNATURE VALID'));
+        $('#btn-back').click(); await sleep(150);
+        out('back returns to the JWE', $('#status-strip').textContent.includes('ENCRYPTED'));
+      }
+
+      // --- alg none + structural errors ---
+      const noneToken = btoa(JSON.stringify({alg:'none',typ:'JWT'})).replace(/=+$/,'') + '.' +
+                        btoa(JSON.stringify({sub:'x', exp: 1600000000})).replace(/=+$/,'') + '.';
+      $('#token-input').value = noneToken;
+      $('#token-input').dispatchEvent(new Event('input', {bubbles:true})); await sleep(400);
+      out('alg none: UNSIGNED badge', $('#status-strip').textContent.includes('UNSIGNED'));
+      out('alg none: high-severity finding', $('#findings-list').textContent.includes('Unsigned token'));
+      out('alg none: expired finding', $('#findings-list').textContent.includes('expired'));
+      out('alg none: verify panel hidden', $('#panel-verify').classList.contains('hidden'));
+
+      $('#token-input').value = 'a.b.c.d';
+      $('#token-input').dispatchEvent(new Event('input', {bubbles:true})); await sleep(400);
+      out('4-part token: parse error shown', !$('#parse-errors').classList.contains('hidden') &&
+          $('#parse-errors').textContent.includes('3 segments'));
+
+      // restore HS sample for the screenshot
+      sampleBtns[0].click(); await sleep(100);
+      $('#btn-verify').click(); await sleep(600);
+      logEl.innerHTML += 'UI-TEST-DONE<br>';
+    } catch (e) {
+      out('exception: ' + e.message, false);
+      logEl.innerHTML += 'UI-TEST-DONE<br>';
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- tools/ui-shot.html — screenshot harness: loads the app, applies a sample, shifts the
+     viewport by ?y=<px> so headless screenshots can capture lower page regions. -->
+<html>
+<head><meta charset="UTF-8"><title>ui-shot</title><style>body{margin:0;overflow:hidden}</style></head>
+<body>
+<iframe id="app" src="../index.html" style="width:1300px;height:2600px;border:0"></iframe>
+<script>
+  const q = new URLSearchParams(location.search);
+  const y = parseInt(q.get('y') || '0', 10);
+  const sample = parseInt(q.get('sample') || '0', 10);
+  const act = q.get('act') || '';
+  document.getElementById('app').style.marginTop = (-y) + 'px';
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  document.getElementById('app').addEventListener('load', async () => {
+    const doc = document.getElementById('app').contentDocument;
+    await sleep(100);
+    if (sample >= 0) {
+      doc.querySelectorAll('.sample-btn')[sample].click();
+      await sleep(150);
+      if (act === 'verify') { doc.querySelector('#btn-verify').click(); await sleep(800); }
+      if (act === 'decrypt') { doc.querySelector('#btn-decrypt').click(); await sleep(900); }
+    }
+  });
+</script>
+</body>
+</html>
