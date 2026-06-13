@@ -384,8 +384,10 @@
     try { await navigator.clipboard.writeText(text); ok = true; }
     catch (e) {
       const ta = document.createElement('textarea');
-      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select();
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0.001;border:none;outline:none';
+      document.body.appendChild(ta);
+      ta.focus(); ta.setSelectionRange(0, ta.value.length);
       try { ok = document.execCommand('copy'); } catch (e2) { /* ignore */ }
       ta.remove();
     }

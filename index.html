@@ -42,7 +42,7 @@
           </button>
         </div>
       </div>
-      <textarea id="token-input" spellcheck="false" autocomplete="off" autocapitalize="off"
+      <textarea id="token-input" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
         placeholder="Paste a bearer token here &mdash; signed (header.payload.signature) or encrypted (5 segments). &quot;Bearer &quot; prefixes and whitespace are stripped automatically."></textarea>
       <div id="status-strip" class="status-strip hidden"></div>
       <div id="parse-errors" class="parse-errors hidden"></div>
@@ -118,7 +118,7 @@
               <button type="button" data-val="utf8">utf-8</button>
             </div>
           </div>
-          <textarea id="decrypt-key" class="key-input mono" spellcheck="false"
+          <textarea id="decrypt-key" class="key-input mono" spellcheck="false" autocorrect="off"
             placeholder="Private key (PKCS#8 PEM or JWK) for RSA-OAEP&hellip;, or the raw symmetric key (base64 / hex) for dir &amp; A***KW."></textarea>
           <button id="btn-decrypt" class="action-btn" type="button">
             <i class="fa-solid fa-unlock" aria-hidden="true"></i> decrypt token
@@ -146,7 +146,7 @@
               <button type="button" data-val="hex">hex</button>
             </div>
           </div>
-          <textarea id="verify-key" class="key-input mono" spellcheck="false"
+          <textarea id="verify-key" class="key-input mono" spellcheck="false" autocorrect="off"
             placeholder="HMAC secret (HS*), or public key as PEM / JWK (RS*, PS*, ES*)&hellip;"></textarea>
           <button id="btn-verify" class="action-btn" type="button">
             <i class="fa-solid fa-shield-halved" aria-hidden="true"></i> verify signature

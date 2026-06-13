@@ -67,6 +67,7 @@ body {
   font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
 /* ---------- atmosphere layers ---------- */
@@ -122,7 +123,9 @@ body {
   color: var(--mint); border: 1px solid rgba(73, 224, 198, 0.35);
   background: rgba(73, 224, 198, 0.07);
   padding: 8px 14px; border-radius: 999px;
+  max-width: 100%; flex-shrink: 1;
 }
+.privacy-pill span { min-width: 0; }
 
 /* ---------- layout ---------- */
 main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
@@ -138,6 +141,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
   .results { grid-template-columns: 1fr; }
   .site-header { padding: 20px 16px 4px; }
   main { padding: 12px 16px 32px; }
+  .site-footer { padding: 14px 16px 24px; }
 }
 
 .hidden { display: none !important; }
@@ -151,8 +155,12 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
   border: 1px solid var(--panel-edge);
   border-radius: var(--radius);
   padding: 16px 18px 18px;
-  backdrop-filter: blur(6px);
   box-shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.8);
+}
+@supports (backdrop-filter: blur()) {
+  @media (min-width: 901px) {
+    .panel { backdrop-filter: blur(6px); }
+  }
 }
 .panel::before { /* frosted top edge */
   content: ''; position: absolute; top: -1px; left: 14px; right: 14px; height: 1px;
@@ -189,7 +197,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 #token-input {
-  min-height: 110px; font-family: var(--mono); font-size: 13px; line-height: 1.6;
+  min-height: 110px; font-family: var(--mono); font-size: 16px; line-height: 1.6;
   padding: 12px 14px; word-break: break-all;
 }
 #token-input:focus, .key-input:focus {
@@ -210,13 +218,14 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
   border: 1px solid rgba(125, 190, 245, 0.25); border-radius: 7px;
   color: var(--ink-dim); font-family: var(--display); font-weight: 500;
   font-size: 11px; letter-spacing: 0.08em;
-  padding: 6px 11px; cursor: pointer;
+  padding: 6px 11px; cursor: pointer; min-height: 44px;
   transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.15s;
 }
 .ghost-btn:hover {
   color: var(--ice); border-color: rgba(95, 212, 255, 0.55);
   background: rgba(95, 212, 255, 0.1); transform: translateY(-1px);
 }
+.ghost-btn:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
 .ghost-btn i { font-size: 11px; }
 
 /* ---------- status strip / badges ---------- */
@@ -364,14 +373,15 @@ main { max-width: 1280px; margin: 0 auto; padding: 18px 28px 40px; }
   border: 0; background: transparent; cursor: pointer;
   color: var(--ink-faint); font-family: var(--display); font-size: 10.5px;
   letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 6px 11px;
+  padding: 6px 11px; min-height: 44px;
   transition: color 0.15s, background 0.15s;
 }
 .seg-select button + button { border-left: 1px solid rgba(125, 190, 245, 0.15); }
 .seg-select button:hover { color: var(--ink); }
+.seg-select button:focus-visible { box-shadow: inset 0 0 0 2px var(--ice); }
 .seg-select button.active { color: var(--bg-0); background: var(--ice); font-weight: 700; }
 
-.key-input { min-height: 92px; font-size: 12px; line-height: 1.55; padding: 11px 13px; }
+.key-input { min-height: 92px; font-size: 16px; line-height: 1.55; padding: 11px 13px; }
 
 .action-btn {
   display: inline-flex; align-items: center; gap: 9px;
